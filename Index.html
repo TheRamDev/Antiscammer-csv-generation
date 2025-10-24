@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scam Label Chatbot (JSONBin Edition)</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      padding: 16px;
+      background: #111827;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    main {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+    .chat, .panel {
+      background: #1e293b;
+      padding: 16px;
+      border-radius: 8px;
+    }
+    .msgs {
+      height: 60vh;
+      overflow-y: auto;
+      background: #0f172a;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+    .msg {
+      margin-bottom: 10px;
+    }
+    .msg.user {
+      color: #22d3ee;
+    }
+    .msg.bot {
+      color: #a78bfa;
+    }
+    input, select, button {
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      margin-right: 8px;
+    }
+    button {
+      cursor: pointer;
+      background: #22d3ee;
+      color: #0f172a;
+      font-weight: bold;
+    }
+    button:hover { filter: brightness(1.1); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      color: #e5e7eb;
+    }
+    th, td {
+      border-bottom: 1px solid #334155;
+      padding: 6px;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Scam Label Chatbot</h1>
+    <button id="downloadCsv">Export CSV</button>
+  </header>
+
+  <main>
+    <div class="chat">
+      <div class="msgs" id="msgs"></div>
+      <div>
+        <input id="text" type="text" placeholder="Type your message..." />
+        <select id="label">
+          <option value="not_scam">not_scam</option>
+          <option value="scam">scam</option>
+        </select>
+        <button id="send">Send</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Recent Entries</h3>
+      <table id="dataTbl">
+        <thead><tr><th>#</th><th>Label</th><th>Text</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script>
+    // === CONFIG ===
+    const BIN_ID = "68fbe6a0ae596e708f29ef96";
+    const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+    const LKEY = "scam_cache_v1";
+
+    // === STATE ===
+    let data = [];
+
+    const msgs = document.getElementById("msgs");
+    const textInput = document.getElementById("text");
+    const labelSelect = document.getElementById("label");
+    const sendBtn = document.getElementById("send");
+    const tblBody = document.querySelector("#dataTbl tbody");
+
+    // === HELPER FUNCTIONS ===
+    function addMsg(role, text) {
+      const div = document.createElement("div");
+      div.className = `msg ${role}`;
+      div.textContent = `${role === "user" ? "You" : "Bot"}: ${text}`;
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function botReply(text) {
+      const t = text.toLowerCase();
+      if (/free robux|free nitro|crypto|verify code|gift card|airdrop/.test(t))
+        return "⚠️ That sounds like a scam. Be cautious!";
+      return "Got it. Entry recorded!";
+    }
+
+    function renderTable() {
+      tblBody.innerHTML = "";
+      data.forEach((r, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${i + 1}</td><td>${r.label}</td><td>${r.text}</td>`;
+        tblBody.appendChild(tr);
+      });
+    }
+
+    function saveLocal() {
+      localStorage.setItem(LKEY, JSON.stringify(data));
+    }
+
+    function loadLocal() {
+      try { data = JSON.parse(localStorage.getItem(LKEY) || "[]"); }
+      catch { data = []; }
+    }
+
+    async function loadData() {
+      try {
+        const res = await fetch(API_URL);
+        if (!res.ok) throw new Error(res.statusText);
+        const json = await res.json();
+        data = json.record || [];
+        saveLocal();
+      } catch (e) {
+        console.warn("Failed to fetch JSONBin, using local cache.", e);
+        loadLocal();
+      }
+      renderTable();
+    }
+
+    async function saveData() {
+      try {
+        const res = await fetch(API_URL, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+        if (!res.ok) throw new Error(res.statusText);
+        console.log("Saved to JSONBin.");
+      } catch (e) {
+        console.error("Failed to save to JSONBin.", e);
+        saveLocal();
+      }
+    }
+
+    function exportCsv() {
+      const esc = v => `"${String(v).replace(/"/g, '""')}"`;
+      const csv = "text,label,ts\n" + data.map(r => `${esc(r.text)},${r.label},${r.ts}`).join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "scam_dataset.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function send() {
+      const text = textInput.value.trim();
+      const label = labelSelect.value;
+      if (!text) return;
+      addMsg("user", text);
+      textInput.value = "";
+      const reply = botReply(text);
+      setTimeout(() => addMsg("bot", reply), 100);
+      data.push({ text, label, ts: Date.now() });
+      renderTable();
+      saveLocal();
+      await saveData();
+    }
+
+    // === EVENT BINDINGS ===
+    sendBtn.onclick = send;
+    textInput.addEventListener("keydown", e => {
+      if (e.key === "Enter") send();
+    });
+    document.getElementById("downloadCsv").onclick = exportCsv;
+
+    // === INIT ===
+    loadData();
+    addMsg("bot", "Welcome! This chatbot logs messages to a shared JSONBin dataset.");
+  </script>
+</body>
+</html>
