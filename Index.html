@@ -3,11 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Scam Label Chatbot (JSONBin Final)</title>
+<title>Scam Label Chatbot (JSONBin Safe Merge)</title>
 <style>
 body{font-family:sans-serif;background:#0f172a;color:#e5e7eb;margin:0;padding:0}
 header{background:#111827;padding:16px;display:flex;align-items:center;justify-content:space-between}
 main{padding:16px;display:grid;grid-template-columns:2fr 1fr;gap:20px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
 .chat,.panel{background:#1e293b;padding:16px;border-radius:8px}
 .msgs{height:60vh;overflow-y:auto;background:#0f172a;padding:12px;border-radius:6px;margin-bottom:10px}
 .msg{margin-bottom:10px}
@@ -18,12 +19,15 @@ button{cursor:pointer;background:#22d3ee;color:#0f172a;font-weight:bold}
 button:hover{filter:brightness(1.1)}
 table{width:100%;border-collapse:collapse;color:#e5e7eb}
 th,td{border-bottom:1px solid #334155;padding:6px;text-align:left}
+.small{font-size:12px;color:#9ca3af}
 </style>
 </head>
 <body>
 <header>
   <h1>Scam Label Chatbot</h1>
-  <button id="downloadCsv">Export CSV</button>
+  <div>
+    <button id="downloadCsv">Export CSV</button>
+  </div>
 </header>
 
 <main>
@@ -37,6 +41,7 @@ th,td{border-bottom:1px solid #334155;padding:6px;text-align:left}
       </select>
       <button id="send">Send</button>
     </div>
+    <div class="small">Data is stored in a shared JSONBin. Each send pulls latest, appends, then pushes back to reduce overwrites.</div>
   </div>
 
   <div class="panel">
@@ -49,121 +54,163 @@ th,td{border-bottom:1px solid #334155;padding:6px;text-align:left}
 </main>
 
 <script>
-/* ===== CONFIG ===== */
+// ===== CONFIG =====
 const BIN_ID = "68fbe6a0ae596e708f29ef96";
-const MASTER_KEY = "$2a$10$K8WPeH6F1lYTOnlv3FYs1uUnBqqUtQTrkKNIhjqeep9IzN917M88G"; // <— put your real key here
-const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
-const UPDATE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
-const LKEY = "scam_cache_v3";
+const MASTER_KEY = "$2a$10$K8WPeH6F1lYTOnlv3FYs1uUnBqqUtQTrkKNIhjqeep9IzN917M88G"; // put your real key here
+const API_LATEST = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
+const API_PUT    = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+const LKEY       = "scam_cache_v4";
 
-/* ===== STATE ===== */
+// ===== STATE =====
 let data = [];
 
-const msgs = document.getElementById("msgs");
+const msgs      = document.getElementById("msgs");
 const textInput = document.getElementById("text");
-const labelSelect = document.getElementById("label");
-const sendBtn = document.getElementById("send");
-const tblBody = document.querySelector("#dataTbl tbody");
+const labelSel  = document.getElementById("label");
+const sendBtn   = document.getElementById("send");
+const tblBody   = document.querySelector("#dataTbl tbody");
 
-/* ===== HELPERS ===== */
+// ===== UI helpers =====
 function addMsg(role, text){
-  const div=document.createElement("div");
-  div.className=`msg ${role}`;
-  div.textContent=`${role==="user"?"You":"Bot"}: ${text}`;
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+  div.textContent = `${role === "user" ? "You" : "Bot"}: ${text}`;
   msgs.appendChild(div);
-  msgs.scrollTop=msgs.scrollHeight;
+  msgs.scrollTop = msgs.scrollHeight;
 }
 
 function botReply(text){
-  const t=text.toLowerCase();
+  const t = text.toLowerCase();
   if(/free robux|free nitro|crypto|verify code|gift card|airdrop/.test(t))
     return "⚠️ That sounds like a scam!";
   return "Got it. Entry recorded.";
 }
 
 function renderTable(){
-  tblBody.innerHTML="";
+  tblBody.innerHTML = "";
   data.forEach((r,i)=>{
-    const tr=document.createElement("tr");
-    tr.innerHTML=`<td>${i+1}</td><td>${r.label}</td><td>${r.text}</td>`;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i+1}</td><td>${r.label}</td><td>${r.text}</td>`;
     tblBody.appendChild(tr);
   });
 }
 
 function saveLocal(){
-  localStorage.setItem(LKEY,JSON.stringify(data));
-}
-function loadLocal(){
-  try{data=JSON.parse(localStorage.getItem(LKEY)||"[]");}catch{data=[];}
+  localStorage.setItem(LKEY, JSON.stringify(data));
 }
 
-/* ===== JSONBIN INTEGRATION ===== */
+function loadLocal(){
+  try {
+    data = JSON.parse(localStorage.getItem(LKEY) || "[]");
+  } catch {
+    data = [];
+  }
+}
+
+// ===== JSONBin helpers =====
+async function fetchLatestFromBin(){
+  const headers = { };
+  if (MASTER_KEY && MASTER_KEY !== "PASTE_YOUR_JSONBIN_X_MASTER_KEY_HERE") {
+    headers["X-Master-Key"] = MASTER_KEY;
+  }
+  const res = await fetch(API_LATEST, { headers });
+  if (!res.ok) throw new Error("JSONBin latest failed: " + res.status);
+  const json = await res.json();
+  return json.record || [];
+}
+
+async function putToBin(records){
+  if (!MASTER_KEY || MASTER_KEY === "PASTE_YOUR_JSONBIN_X_MASTER_KEY_HERE") {
+    console.warn("MASTER_KEY not set; skipping remote write.");
+    return;
+  }
+  const res = await fetch(API_PUT, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Master-Key": MASTER_KEY
+    },
+    body: JSON.stringify(records)
+  });
+  if (!res.ok) throw new Error("JSONBin PUT failed: " + res.status);
+}
+
+// Load on start: prefer remote, fallback to cache
 async function loadData(){
-  try{
-    const res=await fetch(API_URL);
-    if(!res.ok) throw new Error(res.statusText);
-    const json=await res.json();
-    data=json.record||[];
+  try {
+    const latest = await fetchLatestFromBin();
+    data = Array.isArray(latest) ? latest : [];
     saveLocal();
-  }catch(e){
-    console.warn("Failed to fetch JSONBin, using local cache.",e);
+  } catch (e) {
+    console.warn("Failed to fetch JSONBin, using local cache.", e);
     loadLocal();
   }
   renderTable();
 }
 
-async function updateData(entry){
-  data.push(entry);
-  saveLocal();
-  renderTable();
-  try{
-    const res=await fetch(UPDATE_URL,{
-      method:"PUT",
-      headers:{
-        "Content-Type":"application/json",
-        "X-Master-Key":MASTER_KEY
-      },
-      body:JSON.stringify(data)
-    });
-    if(!res.ok) throw new Error(res.statusText);
-    console.log("Updated JSONBin successfully");
-  }catch(e){
-    console.error("Failed to update JSONBin.",e);
+// Append safely: pull latest, merge, then push
+async function appendEntry(entry){
+  try {
+    let latest;
+    try {
+      latest = await fetchLatestFromBin();
+    } catch (e) {
+      console.warn("Could not fetch latest before append, using local copy.", e);
+      latest = data;
+    }
+
+    if (!Array.isArray(latest)) latest = [];
+
+    latest.push(entry);
+    data = latest;
+    saveLocal();
+    renderTable();
+
+    try {
+      await putToBin(latest);
+      console.log("JSONBin updated with", latest.length, "rows");
+    } catch (e) {
+      console.error("JSONBin PUT failed, data kept locally.", e);
+    }
+  } catch (e) {
+    console.error("appendEntry unexpected error", e);
   }
 }
 
-/* ===== EXPORT ===== */
+// ===== CSV export =====
 function exportCsv(){
-  const esc=v=>`"${String(v).replace(/"/g,'""')}"`;
-  const csv="text,label,ts\n"+data.map(r=>`${esc(r.text)},${r.label},${r.ts}`).join("\n");
-  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url;a.download="scam_dataset.csv";a.click();
+  const esc = v => `"${String(v).replace(/"/g,'""')}"`;
+  const csv = "text,label,ts\n" + data.map(r => `${esc(r.text)},${r.label},${r.ts}`).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url;
+  a.download = "scam_dataset.csv";
+  a.click();
   URL.revokeObjectURL(url);
 }
 
-/* ===== CHAT HANDLER ===== */
-async function send(){
-  const text=textInput.value.trim();
-  const label=labelSelect.value;
-  if(!text) return;
-  addMsg("user",text);
-  textInput.value="";
-  const reply=botReply(text);
-  setTimeout(()=>addMsg("bot",reply),100);
-  const entry={text,label,ts:Date.now()};
-  await updateData(entry);
+// ===== Chat send handler =====
+async function handleSend(){
+  const text  = textInput.value.trim();
+  const label = labelSel.value;
+  if (!text) return;
+  addMsg("user", text);
+  textInput.value = "";
+  const reply = botReply(text);
+  setTimeout(()=>addMsg("bot", reply), 100);
+  const entry = { text, label, ts: Date.now() };
+  await appendEntry(entry);
 }
 
-/* ===== EVENTS ===== */
-sendBtn.onclick=send;
-textInput.addEventListener("keydown",e=>{if(e.key==="Enter")send();});
-document.getElementById("downloadCsv").onclick=exportCsv;
+// ===== Wire events =====
+sendBtn.onclick = handleSend;
+textInput.addEventListener("keydown", e => { if (e.key === "Enter") handleSend(); });
+document.getElementById("downloadCsv").onclick = exportCsv;
 
-/* ===== INIT ===== */
+// ===== Init =====
 loadData();
-addMsg("bot","Welcome! This chatbot logs messages to a shared JSONBin dataset.");
+addMsg("bot", "Welcome! This chatbot logs messages to a shared JSONBin dataset. Each send merges with the latest data.");
 </script>
 </body>
 </html>
